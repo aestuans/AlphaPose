@@ -57,8 +57,8 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA = True):
     y_offset = torch.FloatTensor(b).view(-1,1)
     
     if CUDA:
-        x_offset = x_offset.cuda()
-        y_offset = y_offset.cuda()
+        x_offset = x_offset.cpu()
+        y_offset = y_offset.cpu()
     
     x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1,num_anchors).view(-1,2).unsqueeze(0)
     
@@ -68,7 +68,7 @@ def predict_transform(prediction, inp_dim, anchors, num_classes, CUDA = True):
     anchors = torch.FloatTensor(anchors)
     
     if CUDA:
-        anchors = anchors.cuda()
+        anchors = anchors.cpu()
     
     anchors = anchors.repeat(grid_size*grid_size, 1).unsqueeze(0)
     prediction[:,:,2:4] = torch.exp(prediction[:,:,2:4])*anchors
@@ -115,8 +115,11 @@ def dynamic_write_results(prediction, confidence, num_classes, nms=True, nms_con
 
 
 def write_results(prediction, confidence, num_classes, nms=True, nms_conf=0.4):
+    print("UTIL >> WRITE_RESULTS")
+    print("... PREDICTIONS: ", prediction)
     conf_mask = (prediction[:, :, 4] > confidence).float().float().unsqueeze(2)
     prediction = prediction * conf_mask
+
 
     try:
         ind_nz = torch.nonzero(prediction[:,:,4]).transpose(0,1).contiguous()
@@ -130,9 +133,13 @@ def write_results(prediction, confidence, num_classes, nms=True, nms_conf=0.4):
     box_a[:,:,3] = (prediction[:,:,1] + prediction[:,:,3]/2)
     prediction[:,:,:4] = box_a[:,:,:4]
 
+    print("... PREDICTION_AFTER_BS: ", prediction)
+
+
     batch_size = prediction.size(0)
 
     output = prediction.new(1, prediction.size(2) + 1)
+
     write = False
     num = 0
     for ind in range(batch_size):
@@ -148,10 +155,12 @@ def write_results(prediction, confidence, num_classes, nms=True, nms_conf=0.4):
         seq = (image_pred[:,:5], max_conf, max_conf_score)
         image_pred = torch.cat(seq, 1)
 
+
         #Get rid of the zero entries
         non_zero_ind =  (torch.nonzero(image_pred[:,4]))
 
         image_pred_ = image_pred[non_zero_ind.squeeze(),:].view(-1,7)
+        print("... IMG_PRED: ", image_pred)
 
         #Get the various classes detected in the image
         try:
@@ -169,6 +178,7 @@ def write_results(prediction, confidence, num_classes, nms=True, nms_conf=0.4):
             class_mask_ind = torch.nonzero(cls_mask[:,-2]).squeeze()
 
             image_pred_class = image_pred_[class_mask_ind].view(-1,7)
+            print("... IMG_PRED_CLASS: ", image_pred_class)
 
             #sort the detections such that the entry with the maximum objectness
             #confidence is at the top
@@ -251,8 +261,8 @@ def predict_transform_half(prediction, inp_dim, anchors, num_classes, CUDA = Tru
     y_offset = torch.FloatTensor(b).view(-1,1)
     
     if CUDA:
-        x_offset = x_offset.cuda().half()
-        y_offset = y_offset.cuda().half()
+        x_offset = x_offset.cpu().half()
+        y_offset = y_offset.cpu().half()
     
     x_y_offset = torch.cat((x_offset, y_offset), 1).repeat(1,num_anchors).view(-1,2).unsqueeze(0)
     
@@ -262,7 +272,7 @@ def predict_transform_half(prediction, inp_dim, anchors, num_classes, CUDA = Tru
     anchors = torch.HalfTensor(anchors)
     
     if CUDA:
-        anchors = anchors.cuda()
+        anchors = anchors.cpu()
     
     anchors = anchors.repeat(grid_size*grid_size, 1).unsqueeze(0)
     prediction[:,:,2:4] = torch.exp(prediction[:,:,2:4])*anchors

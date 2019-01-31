@@ -164,6 +164,11 @@ class ImageLoader:
 
             while self.Q.full():
                 time.sleep(2)
+
+            print("GETITEM_YOLO ... im_dim_list: ", im_dim_list)
+            print("GETITEM_YOLO ... img_shape: ", img.shape)
+            print("GETITEM_YOLO ... orig_img: ", orig_img[0].shape)
+
             
             self.Q.put((img, orig_img, im_name, im_dim_list))
 
@@ -279,7 +284,7 @@ class DetectionLoader:
         self.det_inp_dim = int(self.det_model.net_info['height'])
         assert self.det_inp_dim % 32 == 0
         assert self.det_inp_dim > 32
-        self.det_model.cuda()
+        self.det_model.cpu()
         self.det_model.eval()
 
         self.stopped = False
@@ -310,6 +315,7 @@ class DetectionLoader:
         return self
 
     def update(self):
+        print("DETECTION_LOADER >> UPDATE")
         # keep looping the whole dataset
         for i in range(self.num_batches):
             img, orig_img, im_name, im_dim_list = self.dataloder.getitem()
@@ -319,11 +325,18 @@ class DetectionLoader:
 
             with torch.no_grad():
                 # Human Detection
-                img = img.cuda()
-                prediction = self.det_model(img, CUDA=True)
+                img = img.cpu()
+                prediction = self.det_model(img, CUDA=False)
+                print("... PREDICTIONS_SHAPE: ", prediction.shape)
+                print("... IM_DIM_LIST: ", im_dim_list)
+
                 # NMS process
                 dets = dynamic_write_results(prediction, opt.confidence,
                                     opt.num_classes, nms=True, nms_conf=opt.nms_thesh)
+
+                print("... DETS_SHAPE: ", dets.shape)
+                print("... DETS: ", dets)
+
                 if isinstance(dets, int) or dets.shape[0] == 0:
                     for k in range(len(orig_img)):
                         if self.Q.full():
@@ -331,7 +344,10 @@ class DetectionLoader:
                         self.Q.put((orig_img[k], im_name[k], None, None, None, None, None))
                     continue
                 dets = dets.cpu()
+
                 im_dim_list = torch.index_select(im_dim_list,0, dets[:, 0].long())
+                print("... IM_DIM_LIST_AFTER_SELECT: ", im_dim_list)
+
                 scaling_factor = torch.min(self.det_inp_dim / im_dim_list, 1)[0].view(-1, 1)
 
                 # coordinate transfer
@@ -340,6 +356,8 @@ class DetectionLoader:
 
                 
                 dets[:, 1:5] /= scaling_factor
+                print("... DETS_AFTER_SCALE: ", dets)
+
                 for j in range(dets.shape[0]):
                     dets[j, [1, 3]] = torch.clamp(dets[j, [1, 3]], 0.0, im_dim_list[j, 0])
                     dets[j, [2, 4]] = torch.clamp(dets[j, [2, 4]], 0.0, im_dim_list[j, 1])
@@ -353,9 +371,14 @@ class DetectionLoader:
                         time.sleep(2)
                     self.Q.put((orig_img[k], im_name[k], None, None, None, None, None))
                     continue
+                print("... K: ", k)
+                print("... BOXES_K: ", boxes_k)
+                print("... SCORES: ", scores)
                 inps = torch.zeros(boxes_k.size(0), 3, opt.inputResH, opt.inputResW)
                 pt1 = torch.zeros(boxes_k.size(0), 2)
                 pt2 = torch.zeros(boxes_k.size(0), 2)
+                print("... PT1: ", pt1)
+
                 if self.Q.full():
                     time.sleep(2)
                 self.Q.put((orig_img[k], im_name[k], boxes_k, scores[dets[:,0]==k], inps, pt1, pt2))
@@ -435,7 +458,7 @@ class VideoDetectionLoader:
         self.det_inp_dim = int(self.det_model.net_info['height'])
         assert self.det_inp_dim % 32 == 0
         assert self.det_inp_dim > 32
-        self.det_model.cuda()
+        self.det_model.cpu()
         self.det_model.eval()
 
         self.stream = cv2.VideoCapture(path)
@@ -493,11 +516,11 @@ class VideoDetectionLoader:
                 ht = inp[0].size(1)
                 wd = inp[0].size(2)
                 # Human Detection
-                img = Variable(torch.cat(img)).cuda()
+                img = Variable(torch.cat(img)).cpu()
                 im_dim_list = torch.FloatTensor(im_dim_list).repeat(1,2)
-                im_dim_list = im_dim_list.cuda()
+                im_dim_list = im_dim_list.cpu()
 
-                prediction = self.det_model(img, CUDA=True)
+                prediction = self.det_model(img, CUDA=False)
                 # NMS process
                 dets = dynamic_write_results(prediction, opt.confidence,
                                     opt.num_classes, nms=True, nms_conf=opt.nms_thesh)
